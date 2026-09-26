@@ -11,7 +11,7 @@ The task links each Source-1 reference record to zero or more records in Sources
 - Dataset sizes: train has 2,206,821 S1, 5,034,616 S2, 5,285,603 S3 rows and 7,638,365 labelled links. Test has 1,732,544 S1, 4,887,273 S2, and 5,082,316 S3 rows.
 - The V6.1 ablation measured candidate-oracle macro F0.5 of about 0.978 on one 5,000-entity slice after relaxing prefiltering. It was not a fitted-model or leaderboard score. The unfiltered candidate volume grew to about 7.3M pairs on that slice, so full-scale unrestricted scoring is not practical.
 - Older reported V4 scores mix in-sample and pair-level evaluation and should not be compared with the official metric. V4 remains available as the frozen fallback.
-- A public GitHub README reports 0.976 macro F0.5 for this task and describes multi-key blocks, source thresholds, and target exclusivity. The claim is self-reported and unverified; use those methods as ideas to evaluate, not as evidence that the score is achieved.
+- A public solution repository self-reports validation macro F0.5 of 0.976105 (99.24% precision, 94.54% recall) and an ensemble ablation of 0.976653 using LightGBM + HistGradientBoosting. These are author-reported holdout results, not an independently verified leaderboard score. Another public design explores multi-view TF-IDF retrieval plus cross-fitted two-stage boosting, but states its full-data run expects at least 32 vCPU and 128 GB RAM; that makes it a useful architecture reference, not a direct Kaggle T4 recipe. See [the reported baseline and ablations](https://github.com/Akash-bardia/amazon-ml-challenge-2026) and [the larger-host pipeline design](https://github.com/AyanAhmedKhan/amazon-ml-challenge).
 - Validation must be based on held-out Source-1 IDs. Never tune for the public leaderboard alone; the private split is what matters.
 
 ## Current implementation
@@ -25,6 +25,16 @@ V7 has been added without changing the frozen V4 inference script:
 - `.gitignore`: excludes challenge inputs, archives, local feature binaries, models, and outputs from Git.
 
 The code is implemented but has not been run on Kaggle or benchmarked on the full dataset. The default cap, candidate recall, runtime, memory use, LightGBM fit, threshold sweep, and final score remain unverified. The requested 0.98–0.99 is a goal, not a guarantee. The decisive first gate is whether the capped candidate-oracle macro F0.5 remains sufficiently high on a representative held-out slice.
+
+## V8 high-recall GPU notebook (new run)
+
+`Kaggle_Entity_Resolution_V8_Best_GPU.ipynb` is the recommended notebook for a new Kaggle session. It embeds its scripts and validator, discovers an attached official dataset under `/kaggle/input/`, and does not need GitHub credentials. It uses all Source-2/3 records for blocking, processes all Source-1 training entities, holds out a deterministic 1% of Source-1 IDs for model/threshold selection, and adds that holdout back for production fitting. Easy negative *pairs* are sampled; positive candidate pairs are retained.
+
+V8 adds address-only and transliterated-address-only blocking provenance because the V6.1 error audit showed name-damaged matches could still share a rare address term. It sets independent posting caps for name-like blocks and address blocks. It compares multi-GPU CatBoost, CPU LightGBM, and probability blends on the same held-out entities; the selected blend and source thresholds are then refit on every training entity using all retrieved positives and the same hard-negative sampling rule. Pair/feature generation writes durable checkpoints every 50,000 Source-1 rows per target source, and completed pair tables are fingerprinted and cached. Rerunning the training cell after an interruption rebuilds the active target index but resumes query processing at the last committed batch. CatBoost writes GPU training snapshots every five minutes. Test inference also checkpoints candidate output and selected edges, batches model calls, and resumes from the last completed query batch. The notebook avoids retraining if matching model/report artifacts are already present.
+
+Checkpoint files live under `/kaggle/working/v8_best_gpu` and inference checkpoints under `/kaggle/working/output_v8_best`. Resume is available when Kaggle preserves that working directory after a kernel interruption; a completely new session/account should be treated as a clean run unless those notebook outputs were explicitly saved and attached.
+
+Treat the V6.1 `0.978` candidate oracle as a preliminary diagnostic only: the experiment selected its 5,000 validation rows from a 25,000-row prefix before shuffling, and its score was an oracle (perfect filtering of candidates), not a trained model score. V8 reports a stable hash holdout candidate oracle and post-threshold macro F0.5 separately. If the candidate oracle is below 0.99, no classifier can reach 0.99 under that candidate cap; blocking must improve first. The V8 candidate cap (128 per target source), validation score, inference runtime, peak RAM, and leaderboard score have not been measured yet and must not be represented as achieved.
 
 ## Kaggle workflow
 
