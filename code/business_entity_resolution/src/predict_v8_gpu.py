@@ -35,7 +35,10 @@ def _file_signature(path: Path) -> dict:
     return {"size": size, "edge_sha256": digest.hexdigest()}
 
 
-def _inference_fingerprint(test_dir: Path, model_dir: Path, metadata_path: Path, metadata: dict) -> str:
+def _inference_fingerprint(
+    test_dir: Path, model_dir: Path, metadata_path: Path, metadata: dict,
+    catboost_prediction_task: str,
+) -> str:
     signatures = {
         "test": {
             name: _file_signature(test_dir / name)
@@ -48,6 +51,7 @@ def _inference_fingerprint(test_dir: Path, model_dir: Path, metadata_path: Path,
         "metadata_sha256": hashlib.sha256(metadata_path.read_bytes()).hexdigest(),
         "pipeline_sha256": hashlib.sha256(Path(__file__).with_name("pipeline_v8.py").read_bytes()).hexdigest(),
         "predictor_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        "catboost_prediction_task": catboost_prediction_task,
     }
     return hashlib.sha256(json.dumps(signatures, sort_keys=True).encode("utf-8")).hexdigest()
 
@@ -73,12 +77,15 @@ def add_selected_edges(connection: sqlite3.Connection, edges: List[Tuple[str, st
     edges.clear()
 
 
-def score_pair_batch(features, cat_model, lgb_model, cat_weight: float, threads: int) -> np.ndarray:
+def score_pair_batch(
+    features, cat_model, lgb_model, cat_weight: float, threads: int,
+    catboost_prediction_task: str,
+) -> np.ndarray:
     matrix = np.asarray(features, dtype=np.float32)
     probability = None
     if cat_weight > 0:
         cat_probability = cat_model.predict_proba(
-            matrix, thread_count=threads, verbose=False
+            matrix, thread_count=threads, verbose=False, task_type=catboost_prediction_task
         )[:, 1]
         probability = cat_weight * cat_probability
     if cat_weight < 1:
@@ -102,6 +109,7 @@ def generate_source_candidates(
     candidate_path: Path,
     query_batch_size: int,
     prediction_threads: int,
+    catboost_prediction_task: str,
     resume_state: dict,
     state_path: Path,
 ) -> int:
@@ -148,7 +156,8 @@ def generate_source_candidates(
             nonlocal feature_rows, candidate_ids, query_ranges
             if feature_rows:
                 probabilities = score_pair_batch(
-                    feature_rows, cat_model, lgb_model, cat_weight, prediction_threads
+                    feature_rows, cat_model, lgb_model, cat_weight,
+                    prediction_threads, catboost_prediction_task,
                 )
                 for query_index, start, end in query_ranges:
                     for target_id, score in zip(candidate_ids[start:end], probabilities[start:end]):
@@ -265,6 +274,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, default=Path("/kaggle/working/output_v8"))
     parser.add_argument("--query-batch-size", type=int, default=1024)
     parser.add_argument("--prediction-threads", type=int, default=2)
+    parser.add_argument("--catboost-prediction-task", choices=("CPU", "GPU"), default="CPU")
     return parser.parse_args()
 
 
@@ -280,7 +290,9 @@ def main() -> None:
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     if metadata.get("feature_names") != list(FEATURE_NAMES):
         raise RuntimeError("The model feature schema does not match this inference code")
-    fingerprint = _inference_fingerprint(test_dir, model_dir, metadata_path, metadata)
+    fingerprint = _inference_fingerprint(
+        test_dir, model_dir, metadata_path, metadata, args.catboost_prediction_task
+    )
     output_manifest_path = output_dir / "inference_v8_manifest.json"
     matching_out = output_dir / "matching_results.tsv"
     candidate_out = output_dir / "candidate_pairs.tsv"
@@ -369,7 +381,8 @@ def main() -> None:
         total_candidates += generate_source_candidates(
             test_dir, source, cap, block_cap, address_block_cap, thresholds[source],
             cat_model, lgb_model, cat_weight, connection, candidate_path,
-            args.query_batch_size, args.prediction_threads, resume_state, state_path,
+            args.query_batch_size, args.prediction_threads, args.catboost_prediction_task,
+            resume_state, state_path,
         )
     write_final_outputs(test_dir, output_dir, candidate_files[2], candidate_files[3], connection)
     connection.close()
@@ -379,6 +392,7 @@ def main() -> None:
         "max_candidates_per_source": cap,
         "threshold_source2": thresholds[2],
         "threshold_source3": thresholds[3],
+        "catboost_prediction_task": args.catboost_prediction_task,
         "output_signatures": {
             "matching_results.tsv": _file_signature(matching_out),
             "candidate_pairs.tsv": _file_signature(candidate_out),
