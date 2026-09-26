@@ -1,0 +1,4 @@
+lightgbm==4.7.0
+numpy==2.2.6
+rapidfuzz==3.14.3
+Unidecode==1.4.0

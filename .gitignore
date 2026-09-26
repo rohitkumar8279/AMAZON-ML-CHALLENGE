@@ -1,0 +1,29 @@
+# Challenge inputs and local archives are large and must be added as Kaggle inputs.
+dataset/
+dataset.db
+*.db
+data____set
+6ab10eb3b23ba_student_resource.zip
+zip_test/
+experiments/
+AmazonML_PreSubmission_*.zip
+out__put*.zip
+
+# Python and Kaggle runtime artifacts.
+.DS_Store
+__pycache__/
+*.py[cod]
+.venv*/
+v6env/
+.kaggle/
+/kaggle/
+
+# Generated model, features, and predictions.
+*.f32
+*.u8
+*.bin
+entity_matcher_v7.txt
+entity_matcher_v7.json
+validation_report_v7.json
+/output/*
+!/output/.gitkeep
