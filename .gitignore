@@ -4,6 +4,7 @@ dataset.db
 *.db
 data____set
 6ab10eb3b23ba_student_resource.zip
+!6ab10eb3b23ba_student_resource.zip
 zip_test/
 experiments/
 AmazonML_PreSubmission_*.zip
